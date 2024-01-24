@@ -1,0 +1,90 @@
+cabal-version: 3.4
+name:          klare
+version:       0.0.0.0
+
+-- synopsis:       $synopsis
+-- description:    $description
+-- category:       $category
+-- homepage:       $gitrepo#readme
+-- bug-reports:    $gitrepo/issues
+-- maintainer:     $maintainer
+build-type:    Simple
+
+-- source-repository head
+--   type: git
+--   location: $gitrepo
+
+common common-opts
+  build-depends:
+    , base
+    , bytestring
+
+  default-language:   Haskell2010
+  default-extensions: ImportQualifiedPost
+
+library
+  import:          common-opts
+
+  -- cabal-fmt: expand src
+  exposed-modules:
+    Core
+    Klare.Example.Main
+    Shaders.Load
+
+  hs-source-dirs:  src
+  build-depends:
+    , GLFW-b
+    , OpenGL
+
+executable klare
+  import:         common-opts
+  main-is:        Main.hs
+  hs-source-dirs: example
+  build-depends:  klare
+
+library playground
+  import:          common-opts
+
+  -- cabal-fmt: expand playground
+  exposed-modules:
+    Playground.Gear
+    Playground.Main
+
+  build-depends:
+    , GLFW-b
+    , mtl
+    , OpenGL
+    , pretty
+    , stm
+    , transformers
+
+  hs-source-dirs:  playground
+
+executable playground-exe
+  import:         common-opts
+  main-is:        Main.hs
+  hs-source-dirs: playground-exe
+  build-depends:  klare:playground
+
+test-suite klare-tests
+  import:         common-opts
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test
+  ghc-options:
+    -Wall -threaded -rtsopts -with-rtsopts=-N -fdefer-typed-holes -O0
+
+  main-is:        Main.hs
+
+  -- cabal-fmt: expand test -Main
+  other-modules:
+    CoreSpec
+    Spec
+
+  build-depends:
+    , hedgehog
+    , hspec
+    , hspec-core
+    , hspec-discover
+    , hspec-expectations
+    , hspec-hedgehog
+    , klare

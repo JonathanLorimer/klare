@@ -1,0 +1,12 @@
+cradle:
+  cabal:
+    - path: "./src"
+      component: "lib:klare"
+    - path: "./playground"
+      component: "lib:playground"
+    - path: "./test"
+      component: "test:klare-tests"
+    - path: "./example"
+      component: "exe:klare"
+    - path: "./plaground-exe"
+      component: "exe:playground-exe"
