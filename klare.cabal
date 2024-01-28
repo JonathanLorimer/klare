@@ -20,7 +20,10 @@ common common-opts
     , bytestring
 
   default-language:   Haskell2010
-  default-extensions: ImportQualifiedPost
+  default-extensions:
+    ImportQualifiedPost
+    LambdaCase
+    TypeApplications
 
 library
   import:          common-opts
@@ -28,13 +31,20 @@ library
   -- cabal-fmt: expand src
   exposed-modules:
     Core
+    Klare.Events
+    Klare.Events.Callbacks
+    Klare.Events.Type
     Klare.Example.Main
+    Klare.Info.Print
     Shaders.Load
 
   hs-source-dirs:  src
   build-depends:
     , GLFW-b
     , OpenGL
+    , pretty
+    , stm
+    , storable-tuple
 
 executable klare
   import:         common-opts

@@ -35,7 +35,7 @@
       # nix develop
       devShell = forAllSystems ({hsPkgs, pkgs, ...}:
         hsPkgs.shellFor {
-          # withHoogle = true;
+          withHoogle = true;
           packages = p: [
             p.klare
           ];

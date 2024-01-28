@@ -472,16 +472,6 @@ printInformation win = do
                   $+$ text "Version string:"
                   <+> renderVersionString versionString
               )
-            $+$ text "Monitors:"
-            $+$ nest
-              4
-              ( renderMonitorInfos monitorInfos
-              )
-            $+$ text "Joysticks:"
-            $+$ nest
-              4
-              ( renderJoystickNames joystickNames
-              )
             $+$ text "OpenGL context:"
             $+$ nest
               4
@@ -506,31 +496,6 @@ printInformation win = do
 
   renderVersionString =
     text . show
-
-  renderMonitorInfos =
-    maybe (text "(error)") (vcat . map renderMonitorInfo)
-
-  renderMonitorInfo (name, (x, y), (w, h), vms) =
-    text (show name)
-      $+$ nest
-        4
-        ( location
-            <+> size
-            $+$ fsep (map renderVideoMode vms)
-        )
-   where
-    location = int x <> text "," <> int y
-    size = int w <> text "x" <> int h <> text "mm"
-
-  renderVideoMode (GLFW.VideoMode w h r g b rr) =
-    brackets $ res <+> rgb <+> hz
-   where
-    res = int w <> text "x" <> int h
-    rgb = int r <> text "x" <> int g <> text "x" <> int b
-    hz = int rr <> text "Hz"
-
-  renderJoystickNames pairs =
-    vcat $ map (\(js, name) -> text (show js) <+> text (show name)) pairs
 
   renderContextVersion v0 v1 v2 =
     hcat [int v0, text ".", int v1, text ".", int v2]

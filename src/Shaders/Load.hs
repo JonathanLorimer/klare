@@ -1,3 +1,4 @@
+{-# LANGUAGE BlockArguments #-}
 module Shaders.Load (
    ShaderSource(..), ShaderInfo(..), loadShaders
 ) where
@@ -40,23 +41,27 @@ data ShaderInfo = ShaderInfo ShaderType ShaderSource
 loadShaders :: [ShaderInfo] -> IO Program
 loadShaders infos =
    createProgram `bracketOnError` deleteObjectName $ \program -> do
-      loadCompileAttach program infos
+      shaders <- loadCompileAttach program infos
       linkAndCheck program
+      releaseShaderCompiler
       validateProgram program
-      return program
+      pure program
 
 linkAndCheck :: Program -> IO ()
 linkAndCheck = checked linkProgram linkStatus programInfoLog "link"
 
-loadCompileAttach :: Program -> [ShaderInfo] -> IO ()
-loadCompileAttach _ [] = return ()
-loadCompileAttach program (ShaderInfo shType source : infos) = do
-   createShader shType `bracketOnError` deleteObjectName $ \shader -> do
-      src <- getSource source
-      shaderSourceBS shader $= src
-      compileAndCheck shader
-      attachShader program shader
-      loadCompileAttach program infos
+loadCompileAttach :: Program -> [ShaderInfo] -> IO [Shader]
+loadCompileAttach program shaders = do
+   forM shaders $ \(ShaderInfo shType source) ->
+      bracket 
+        (createShader shType)
+        deleteObjectName
+        \shader -> do
+          src <- getSource source
+          shaderSourceBS shader $= src
+          compileAndCheck shader
+          attachShader program shader
+          pure shader
 
 compileAndCheck :: Shader -> IO ()
 compileAndCheck = checked compileShader compileStatus shaderInfoLog "compile"
