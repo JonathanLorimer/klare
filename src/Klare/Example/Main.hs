@@ -19,6 +19,9 @@ import Control.Exception.Base (Exception)
 import GHC.Float (double2Float)
 import Foreign.Storable.Tuple ()
 import Data.Bifunctor
+import GHC.Stack (HasCallStack, callStack)
+import GHC.Exception (prettyCallStack)
+import Graphics.GLUtil qualified as GLUtil
 
 bufferOffset :: (Integral a) => a -> Ptr b
 bufferOffset = plusPtr nullPtr . fromIntegral
@@ -32,12 +35,12 @@ main = do
 
   withWindow width height "GLFW-b-demo" $ \win -> 
     withEventChann win $ \eventQueue -> do
-      let shapeData :: [(GL.Vertex3 GL.GLfloat, GL.Color3 GL.GLfloat)]
+      let shapeData :: [(GL.Vertex3 GL.GLfloat, GL.Color3 GL.GLfloat, GL.TexCoord2 GL.GLfloat)]
           shapeData =
-            [ (GL.Vertex3 (-0.5) (-0.5) (-1), GL.Color3 1.0 0.0 0.0)
-            , (GL.Vertex3 0.5 (-0.5) (-1)   , GL.Color3 0.0 1.0 0.0)
-            , (GL.Vertex3 (-0.5) 0.5 1      , GL.Color3 0.0 0.0 1.0)
-            , (GL.Vertex3 0.5 0.5 1         , GL.Color3 0.5 0.5 0.5)
+            [ (GL.Vertex3 (-0.5) (-0.5) (-1), GL.Color3 1.0 0.0 0.0, GL.TexCoord2 0.0 0.0)
+            , (GL.Vertex3 0.5 (-0.5) (-1)   , GL.Color3 0.0 1.0 0.0, GL.TexCoord2 1.0 0.0)
+            , (GL.Vertex3 (-0.5) 0.5 1      , GL.Color3 0.0 0.0 1.0, GL.TexCoord2 0.0 1.0)
+            , (GL.Vertex3 0.5 0.5 1         , GL.Color3 0.5 0.5 0.5, GL.TexCoord2 1.0 1.0)
             ]
 
           indices :: [GL.GLuint]
@@ -47,12 +50,12 @@ main = do
 
       vertexBuffer <- GL.genObjectName
       GL.bindBuffer GL.ArrayBuffer $= Just vertexBuffer
-
+      
       withArray shapeData $ \ptr -> do
         let sizev = 
                 fromIntegral 
               . getSum 
-              $ foldMap (Sum . uncurry (+) . bimap sizeOf sizeOf) 
+              $ foldMap (Sum . sizeOf) 
                 shapeData
         GL.bufferData GL.ArrayBuffer $= (sizev, ptr, GL.StaticDraw)
 
@@ -68,7 +71,7 @@ main = do
               (bufferOffset vtxFirstIndex)
 
           clrAttribLoc = GL.AttribLocation 1
-          clrFirstIndex = fromIntegral . sizeOf . fst $ head shapeData
+          clrFirstIndex = fromIntegral . sizeOf . (\(a,_,_) -> a) $ head shapeData
           clrDesc =
             GL.VertexArrayDescriptor
               3
@@ -76,11 +79,23 @@ main = do
               stride
               (bufferOffset clrFirstIndex)
 
+          texAttribLoc = GL.AttribLocation 2
+          texFirstIndex = fromIntegral . sizeOf . (\(a,b,_) -> (a,b)) $ head shapeData
+          texDesc =
+            GL.VertexArrayDescriptor
+              2
+              GL.Float
+              stride
+              (bufferOffset texFirstIndex)
+
       GL.vertexAttribPointer vtxAttribLoc $= (GL.ToFloat, vtxDesc)
       GL.vertexAttribArray vtxAttribLoc $= GL.Enabled
 
       GL.vertexAttribPointer clrAttribLoc $= (GL.ToFloat, clrDesc)
       GL.vertexAttribArray clrAttribLoc $= GL.Enabled
+
+      GL.vertexAttribPointer texAttribLoc $= (GL.ToFloat, texDesc)
+      GL.vertexAttribArray texAttribLoc $= GL.Enabled
 
       indexBuffer <- GL.genObjectName
       GL.bindBuffer GL.ElementArrayBuffer $= Just indexBuffer
@@ -88,6 +103,13 @@ main = do
       withArray indices $ \ptr -> do
         let sizev = fromIntegral . getSum $ foldMap (Sum . sizeOf) indices
         GL.bufferData GL.ElementArrayBuffer $= (sizev, ptr, GL.StaticDraw)
+
+      tx <- either error id <$> GLUtil.readTexture "assets/wall.jpg"
+      GL.textureFilter GL.Texture2D $= ((GL.Linear', Nothing), GL.Linear')
+      GLUtil.texture2DWrap $= (GL.Repeated, GL.ClampToEdge)
+      GL.texture GL.Texture2D $= GL.Enabled
+      GL.activeTexture $= GL.TextureUnit 0
+      GL.textureBinding GL.Texture2D $= Just tx
 
       program <-
         loadShaders
@@ -105,7 +127,8 @@ renderLoop win program eventQueue = do
   time <- GLFW.getTime
   let gv = maybe 0.3 ((\t -> (sin t / 2.0) + 0.5) . double2Float) time
   u_Colour <- GL.get $ GL.uniformLocation program "u_Colour"
-  GL.uniform u_Colour $= (GL.Color4 @GL.GLfloat) 0.3 gv 0.2 0.1
+  when (u_Colour /= GL.UniformLocation (-1)) $
+    GL.uniform u_Colour $= (GL.Color4 @GL.GLfloat) 0.3 gv 0.2 0.1
   draw
   GLFW.swapBuffers win
   GLFW.pollEvents
@@ -118,8 +141,7 @@ draw :: IO ()
 draw = do
   GL.clearColor $= GL.Color4 0.2 0.3 0.3 1
   GL.clear [GL.ColorBuffer]
-  GL.drawElements GL.Triangles 6 GL.UnsignedInt nullPtr -- Bound in element array buffer slot above
-  handleErrors
+  handleGLErrors $ GL.drawElements GL.Triangles 6 GL.UnsignedInt nullPtr
 
 resizeWindow :: GLFW.WindowSizeCallback
 resizeWindow win w h =
@@ -181,12 +203,17 @@ data GLException = GLException deriving Show
 
 instance Exception GLException
 
-handleErrors :: IO ()
-handleErrors = do
+handleGLErrors :: HasCallStack => IO () -> IO ()
+handleGLErrors action = do
+  GL.errors
+  action
   es <- GL.errors
   case es of
     [] -> pure ()
-    es -> print es >> throwIO GLException
+    es -> do 
+      putStrLn (prettyCallStack callStack)
+      print es 
+      throwIO GLException
 
 withWindow :: Int -> Int -> String -> (GLFW.Window -> IO ()) -> IO ()
 withWindow width height title f = do

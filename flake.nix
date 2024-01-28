@@ -56,6 +56,7 @@
               glfw-wayland
               freeglut
               libGLU
+              zlib
             ];
         });
 
