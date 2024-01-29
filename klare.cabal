@@ -35,17 +35,20 @@ library
     Klare.Events.Callbacks
     Klare.Events.Type
     Klare.Example.Main
+    Klare.Image.Texture
     Klare.Info.Print
     Shaders.Load
 
   hs-source-dirs:  src
   build-depends:
     , GLFW-b
+    , GLUtil
+    , JuicyPixels
+    , JuicyPixels-extra
     , OpenGL
     , pretty
     , stm
     , storable-tuple
-    , GLUtil
 
 executable klare
   import:         common-opts

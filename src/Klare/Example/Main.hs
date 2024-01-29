@@ -13,6 +13,7 @@ import Klare.Events.Type
 import Control.Concurrent.STM.TQueue
 import Klare.Events (handleEvents, withEventChann)
 import Klare.Info.Print
+import Klare.Image.Texture (readTexInfoFlipped)
 import Data.Monoid (Sum(..))
 import Control.Exception (throwIO)
 import Control.Exception.Base (Exception)
@@ -104,20 +105,38 @@ main = do
         let sizev = fromIntegral . getSum $ foldMap (Sum . sizeOf) indices
         GL.bufferData GL.ElementArrayBuffer $= (sizev, ptr, GL.StaticDraw)
 
-      tx <- either error id <$> GLUtil.readTexture "assets/wall.jpg"
-      GL.textureFilter GL.Texture2D $= ((GL.Linear', Nothing), GL.Linear')
-      GLUtil.texture2DWrap $= (GL.Repeated, GL.ClampToEdge)
-      GL.texture GL.Texture2D $= GL.Enabled
-      GL.activeTexture $= GL.TextureUnit 0
-      GL.textureBinding GL.Texture2D $= Just tx
-
       program <-
         loadShaders
           [ ShaderInfo GL.VertexShader (FileSource "shaders/example/vert.glsl")
           , ShaderInfo GL.FragmentShader (FileSource "shaders/example/frag.glsl")
           ]
 
+      GL.activeTexture $= GL.TextureUnit 1
+      wall <- either error id <$> GLUtil.readTexture "assets/wall.jpg"
+      GL.textureFilter GL.Texture2D $= ((GL.Linear', Nothing), GL.Linear')
+      GLUtil.texture2DWrap $= (GL.Repeated, GL.ClampToBorder)
+      GL.textureBinding GL.Texture2D $= Just wall
+      GL.texture GL.Texture2D $= GL.Enabled
+
+      GL.activeTexture $= GL.TextureUnit 2
+      smiley <- either error id <$> 
+        readTexInfoFlipped "assets/awesomeface.png" GLUtil.loadTexture
+      GL.textureFilter GL.Texture2D $= ((GL.Linear', Nothing), GL.Linear')
+      GLUtil.texture2DWrap $= (GL.Repeated, GL.ClampToBorder)
+      GL.textureBinding GL.Texture2D $= Just smiley
+      GL.texture GL.Texture2D $= GL.Enabled
+
+      us <- GL.get $ GL.activeUniforms program
+      print us
+
       GL.currentProgram $= Just program
+
+      texture1 <- GL.get $ GL.uniformLocation program "texture1"
+      GL.uniform texture1 $= GL.TextureUnit 1
+
+      texture2 <- GL.get $ GL.uniformLocation program "texture2"
+      GL.uniform texture2 $= GL.TextureUnit 2
+
       -- Set wireframe mode
       -- GL.polygonMode $= (GL.Line, GL.Line)
       renderLoop win program eventQueue
@@ -224,6 +243,7 @@ withWindow width height title f = do
     m <- GLFW.createWindow width height title Nothing Nothing
     case m of
       (Just win) -> do
+        printInformation win
         GLFW.makeContextCurrent m
         f win
         shutdown win
