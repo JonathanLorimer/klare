@@ -5,7 +5,9 @@ module Klare.Data.Buffer
 , bwData
 , bwTarget
 , registerBuffer
-, registerVtxArray
+, withBuffer
+, registerLayout
+, withLayout
 ) where
 
 import Data.StateVar
@@ -19,6 +21,7 @@ import qualified Data.List.NonEmpty as NE
 import Control.Exception (bracket)
 import Klare.Data.Layout
 import Data.Traversable (forM)
+import Data.Foldable (forM_)
 
 data BufferWitness a = 
   BufferWitness 
@@ -58,10 +61,22 @@ withBuffer target usage bufferData f =
       GL.deleteObjectName bwObject
     )
     
-registerVtxArray :: forall a. Layout a => IO [GL.AttribLocation]
-registerVtxArray = 
+registerLayout :: forall a. Layout a => IO [GL.AttribLocation]
+registerLayout = 
   forM (zip (descriptors @a) [0..]) $ \(desc, idx) -> do
     let attribLoc = GL.AttribLocation idx
     GL.vertexAttribPointer attribLoc $= (GL.ToFloat, desc)
     GL.vertexAttribArray attribLoc $= GL.Enabled
     pure attribLoc
+
+withLayout 
+  :: forall a b . Layout a 
+  => ([GL.AttribLocation] -> IO ()) 
+  -> IO () 
+withLayout f =
+  bracket
+    (registerVtxArray @a)
+    f 
+    (\locs -> forM_ locs $ 
+        \loc -> GL.vertexAttribArray loc $= GL.Disabled
+    )

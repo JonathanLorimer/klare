@@ -48,6 +48,8 @@ main = do
           , (GL.Vertex3 0.5 0.5 1, GL.Color3 0.5 0.5 0.5, GL.TexCoord2 1.0 1.0)
           ]
 
+      registerLayout @VBO
+
       indexWitness <-
         registerBuffer @GL.GLuint
           GL.ElementArrayBuffer
@@ -60,48 +62,6 @@ main = do
           , 3
           ]
 
-      -- let vboData = bwData vboWitness
-      --     stride = fromIntegral . sizeOf $ head vboData
-      --     layout =
-      --       head vboData & \(a, b, _) ->
-      --         (sizeOf a, sizeOf b)
-      --
-      --     vtxAttribLoc = GL.AttribLocation 0
-      --     vtxFirstIndex = 0
-      --     vtxDesc =
-      --       GL.VertexArrayDescriptor
-      --         3
-      --         GL.Float
-      --         stride
-      --         (bufferOffset vtxFirstIndex)
-      --
-      --     clrAttribLoc = GL.AttribLocation 1
-      --     clrFirstIndex = fst layout
-      --     clrDesc =
-      --       GL.VertexArrayDescriptor
-      --         3
-      --         GL.Float
-      --         stride
-      --         (bufferOffset clrFirstIndex)
-      --
-      --     texAttribLoc = GL.AttribLocation 2
-      --     texFirstIndex = uncurry (+) layout
-      --     texDesc =
-      --       GL.VertexArrayDescriptor
-      --         2
-      --         GL.Float
-      --         stride
-      --         (bufferOffset texFirstIndex)
-      --
-      -- GL.vertexAttribPointer vtxAttribLoc $= (GL.ToFloat, vtxDesc)
-      -- GL.vertexAttribArray vtxAttribLoc $= GL.Enabled
-      --
-      -- GL.vertexAttribPointer clrAttribLoc $= (GL.ToFloat, clrDesc)
-      -- GL.vertexAttribArray clrAttribLoc $= GL.Enabled
-      --
-      -- GL.vertexAttribPointer texAttribLoc $= (GL.ToFloat, texDesc)
-      -- GL.vertexAttribArray texAttribLoc $= GL.Enabled
-      registerVtxArray @VBO
 
       program <-
         loadShaders
