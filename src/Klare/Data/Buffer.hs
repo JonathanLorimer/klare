@@ -75,7 +75,7 @@ withLayout
   -> IO () 
 withLayout f =
   bracket
-    (registerVtxArray @a)
+    (registerLayout @a)
     f 
     (\locs -> forM_ locs $ 
         \loc -> GL.vertexAttribArray loc $= GL.Disabled

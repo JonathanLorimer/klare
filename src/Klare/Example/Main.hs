@@ -25,6 +25,7 @@ import Klare.Image.Texture (readTexInfoFlipped)
 import Klare.Info.Print
 import Shaders.Load
 import System.Exit (exitSuccess)
+import Klare.Data.Texture (registerTextures)
 
 bufferOffset :: (Integral a) => a -> Ptr b
 bufferOffset = plusPtr nullPtr . fromIntegral
@@ -54,14 +55,13 @@ main = do
         registerBuffer @GL.GLuint
           GL.ElementArrayBuffer
           GL.StaticDraw
-          [ 0
-          , 1
-          , 2
-          , 1
-          , 2
-          , 3
+          [ 0, 1, 2
+          , 1, 2, 3
           ]
 
+      
+      GL.blend $= GL.Enabled
+      GL.blendFunc $= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
 
       program <-
         loadShaders
@@ -69,32 +69,24 @@ main = do
           , ShaderInfo GL.FragmentShader (FileSource "shaders/example/frag.glsl")
           ]
 
-      GL.activeTexture $= GL.TextureUnit 1
-      wall <- either error id <$> GLUtil.readTexture "assets/wall.jpg"
-      GL.textureFilter GL.Texture2D $= ((GL.Linear', Nothing), GL.Linear')
-      GLUtil.texture2DWrap $= (GL.Repeated, GL.ClampToBorder)
-      GL.textureBinding GL.Texture2D $= Just wall
-      GL.texture GL.Texture2D $= GL.Enabled
+      -- NOTE: this sucks really bad, but `GLUtil` enables the texture
+      let wall = either error id <$> GLUtil.readTexture "assets/wall.jpg"
+          smiley =
+            either error id
+              <$> readTexInfoFlipped "assets/awesomeface.png" GLUtil.loadTexture
+          -- smiley =
+          --   either error id
+          --     <$> readTexInfoFlipped "assets/trans.png" GLUtil.loadTexture
 
-      GL.activeTexture $= GL.TextureUnit 2
-      smiley <-
-        either error id
-          <$> readTexInfoFlipped "assets/awesomeface.png" GLUtil.loadTexture
-      GL.textureFilter GL.Texture2D $= ((GL.Linear', Nothing), GL.Linear')
-      GLUtil.texture2DWrap $= (GL.Repeated, GL.ClampToBorder)
-      GL.textureBinding GL.Texture2D $= Just smiley
-      GL.texture GL.Texture2D $= GL.Enabled
-
-      us <- GL.get $ GL.activeUniforms program
-      print us
+      textures <- registerTextures [(GL.Texture2D, wall), (GL.Texture2D, smiley)]
 
       GL.currentProgram $= Just program
 
-      texture1 <- GL.get $ GL.uniformLocation program "texture1"
-      GL.uniform texture1 $= GL.TextureUnit 1
-
-      texture2 <- GL.get $ GL.uniformLocation program "texture2"
-      GL.uniform texture2 $= GL.TextureUnit 2
+      forM_ textures $ \texUnit@(GL.TextureUnit t) -> do
+        print ("texture" <> show t)
+        tex <- GL.get $ GL.uniformLocation program ("texture" <> show t)
+        print tex
+        GL.uniform tex $= texUnit
 
       -- Set wireframe mode
       -- GL.polygonMode $= (GL.Line, GL.Line)

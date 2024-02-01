@@ -36,6 +36,7 @@ library
     Core
     Klare.Data.Buffer
     Klare.Data.Layout
+    Klare.Data.Texture
     Klare.Error.GL
     Klare.Events
     Klare.Events.Callbacks
