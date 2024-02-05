@@ -6,6 +6,7 @@ import Klare.Events.Callbacks
 import Control.Concurrent.STM.TQueue
 import Data.Foldable
 import Control.Concurrent.STM (atomically)
+import Control.Monad.IO.Class (MonadIO(..))
 
 -- | Initializes a 'TQueue' for even processing, then registers 
 -- GLFW event callbacks that intercept events and write them to
@@ -35,16 +36,16 @@ withEventChann win action = do
     action eventsChan    
 
 -- | Helper function that allows you to just case on events and handle them individually
-handleEvent' :: TQueue Event -> (Event -> IO ()) ->  IO ()
+handleEvent' :: MonadIO m => TQueue Event -> (Event -> m ()) ->  m ()
 handleEvent' queue f = do
-  me <- atomically $ tryReadTQueue queue
+  me <- liftIO $ atomically $ tryReadTQueue queue
   case me of
     Just e -> do
       f e
       handleEvent' queue f
     Nothing -> return ()
 
-handleEvents :: TQueue Event -> (Event -> IO ()) ->  IO ()
+handleEvents :: MonadIO m => TQueue Event -> (Event -> m ()) ->  m ()
 handleEvents queue f = do
-  es <- atomically $ flushTQueue queue
+  es <- liftIO $ atomically $ flushTQueue queue
   traverse_ f es

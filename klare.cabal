@@ -57,6 +57,9 @@ library
     , StateVar
     , stm
     , storable-tuple
+    , linear
+    , transformers
+    , mtl
 
 executable klare
   import:         common-opts

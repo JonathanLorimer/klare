@@ -26,11 +26,30 @@ import Klare.Info.Print
 import Shaders.Load
 import System.Exit (exitSuccess)
 import Klare.Data.Texture (registerTextures)
+import Control.Monad.Reader (ReaderT, asks, runReaderT)
+import Control.Monad.State (StateT, runStateT, put, MonadState (..))
+import Control.Monad.IO.Class (MonadIO(..))
+import Linear (ortho)
+import Data.Ratio
 
 bufferOffset :: (Integral a) => a -> Ptr b
 bufferOffset = plusPtr nullPtr . fromIntegral
 
-type VBO = (GL.Vertex3 GL.GLfloat, GL.Color3 GL.GLfloat, GL.TexCoord2 GL.GLfloat)
+data KlareEnv = 
+  KlareEnv
+    { events :: !(TQueue Event)
+    , window :: !GLFW.Window
+    }
+
+data KlareState =
+  KlareState
+    { winHeight :: !Int
+    , winWidth :: !Int
+    }
+
+type KlareM a = ReaderT KlareEnv (StateT KlareState IO) a
+
+type VBO = (GL.Vertex4 GL.GLfloat, GL.Color3 GL.GLfloat, GL.TexCoord2 GL.GLfloat)
 
 main :: IO ()
 main = do
@@ -43,10 +62,10 @@ main = do
         registerBuffer @VBO
           GL.ArrayBuffer
           GL.StaticDraw
-          [ (GL.Vertex3 (-0.5) (-0.5) (-1), GL.Color3 1.0 0.0 0.0, GL.TexCoord2 0.0 0.0)
-          , (GL.Vertex3 0.5 (-0.5) (-1), GL.Color3 0.0 1.0 0.0, GL.TexCoord2 1.0 0.0)
-          , (GL.Vertex3 (-0.5) 0.5 1, GL.Color3 0.0 0.0 1.0, GL.TexCoord2 0.0 1.0)
-          , (GL.Vertex3 0.5 0.5 1, GL.Color3 0.5 0.5 0.5, GL.TexCoord2 1.0 1.0)
+          [ (GL.Vertex4 (-0.5) (-0.5) 0.0 1.0, GL.Color3 1.0 0.0 0.0, GL.TexCoord2 0.0 0.0)
+          , (GL.Vertex4 0.5 (-0.5) 0.0 1.0, GL.Color3 0.0 1.0 0.0, GL.TexCoord2 1.0 0.0)
+          , (GL.Vertex4 (-0.5) 0.5 0.0 1.0, GL.Color3 0.0 0.0 1.0, GL.TexCoord2 0.0 1.0)
+          , (GL.Vertex4 0.5 0.5 0.0 1.0, GL.Color3 0.5 0.5 0.5, GL.TexCoord2 1.0 1.0)
           ]
 
       registerLayout @VBO
@@ -58,7 +77,6 @@ main = do
           [ 0, 1, 2
           , 1, 2, 3
           ]
-
       
       GL.blend $= GL.Enabled
       GL.blendFunc $= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
@@ -73,15 +91,13 @@ main = do
       let wall = either error id <$> GLUtil.readTexture "assets/wall.jpg"
           smiley =
             either error id
-              <$> readTexInfoFlipped "assets/awesomeface.png" GLUtil.loadTexture
-          -- smiley =
-          --   either error id
-          --     <$> readTexInfoFlipped "assets/trans.png" GLUtil.loadTexture
+              <$> readTexInfoFlipped "assets/wiener.png" GLUtil.loadTexture
 
       textures <- registerTextures [(GL.Texture2D, wall), (GL.Texture2D, smiley)]
 
       GL.currentProgram $= Just program
-
+      
+      -- TODO: attach uniforms to the "shader" abstraction
       forM_ textures $ \texUnit@(GL.TextureUnit t) -> do
         print ("texture" <> show t)
         tex <- GL.get $ GL.uniformLocation program ("texture" <> show t)
@@ -90,46 +106,73 @@ main = do
 
       -- Set wireframe mode
       -- GL.polygonMode $= (GL.Line, GL.Line)
-      renderLoop win program eventQueue
+      let env = KlareEnv 
+                  { events = eventQueue
+                  , window = win
+                  }
+      let state = KlareState 
+                  { winHeight = height
+                  , winWidth = width
+                  }
+      void 
+        $ flip runStateT state 
+        $ flip runReaderT env 
+        $ renderLoop program
 
-renderLoop :: GLFW.Window -> GL.Program -> TQueue Event -> IO ()
-renderLoop win program eventQueue = do
-  time <- GLFW.getTime
+renderLoop :: GL.Program -> KlareM ()
+renderLoop program = do
+  win <- asks window
+  eventQueue <- asks events
+  time <- liftIO GLFW.getTime
   let gv = maybe 0.3 ((\t -> (sin t / 2.0) + 0.5) . double2Float) time
   u_Colour <- GL.get $ GL.uniformLocation program "u_Colour"
   when (u_Colour /= GL.UniformLocation (-1)) $
     GL.uniform u_Colour $= (GL.Color4 @GL.GLfloat) 0.3 gv 0.2 0.1
+
+  u_MVP <- GL.get $ GL.uniformLocation program "u_MVP"
+  when (u_MVP /= GL.UniformLocation (-1)) $ do
+    KlareState{..} <- get
+    let w = fromIntegral winWidth
+        h = fromIntegral winHeight
+        (wRatio, hRatio) = if w > h 
+                            then (1, h / w)
+                            else (w / h, 1)
+        proj = (ortho @GL.GLfloat) (negate wRatio) wRatio (negate hRatio) hRatio (-1.0) 1.0
+    liftIO $ GLUtil.asUniform proj u_MVP 
   draw
-  GLFW.swapBuffers win
-  GLFW.pollEvents
+  liftIO $ do 
+    GLFW.swapBuffers win
+    GLFW.pollEvents
+    
   handleEvents eventQueue handler
 
-  q <- GLFW.windowShouldClose win
-  unless q $ renderLoop win program eventQueue
+  q <- liftIO $ GLFW.windowShouldClose win
+  unless q $ renderLoop program
 
-draw :: IO ()
+draw :: KlareM ()
 draw = do
   GL.clearColor $= GL.Color4 0.2 0.3 0.3 1
-  GL.clear [GL.ColorBuffer]
-  handleGLErrors $ GL.drawElements GL.Triangles 6 GL.UnsignedInt nullPtr
+  liftIO $ GL.clear [GL.ColorBuffer]
+  liftIO $ handleGLErrors $ GL.drawElements GL.Triangles 6 GL.UnsignedInt nullPtr
 
-resizeWindow :: GLFW.WindowSizeCallback
-resizeWindow win w h =
-  do
+resizeWindow :: Int -> Int -> KlareM ()
+resizeWindow w h = do
+  put $ KlareState { winHeight = h, winWidth = w } 
+  liftIO $ do
     GL.viewport $= (GL.Position 0 0, GL.Size (fromIntegral w) (fromIntegral h))
     GL.matrixMode $= GL.Projection
     GL.loadIdentity
     GL.ortho2D 0 (realToFrac w) (realToFrac h) 0
 
-handler :: Event -> IO ()
+handler :: Event -> KlareM ()
 handler = \case
   (EventError e s) ->
     printEvent "error" [show e, show s]
   (EventWindowPos _ x y) ->
     printEvent "window pos" [show x, show y]
-  (EventWindowSize window width height) -> do
+  (EventWindowSize _ width height) -> do
     printEvent "window size" [show width, show height]
-    resizeWindow window width height
+    resizeWindow width height
   (EventWindowClose window) -> do
     printEvent "window close" []
     shutdown window
@@ -154,15 +197,15 @@ handler = \case
     when (ks == GLFW.KeyState'Pressed) $ do
       -- Q, Esc: exit
       when (k == GLFW.Key'Q || k == GLFW.Key'Escape) $
-        GLFW.setWindowShouldClose win True
+        liftIO $ GLFW.setWindowShouldClose win True
       -- i: print GLFW information
       when (k == GLFW.Key'I) $
-        printInformation win
+        liftIO $ printInformation win
   (EventChar _ c) ->
     printEvent "char" [show c]
 
-shutdown :: GLFW.WindowCloseCallback
-shutdown win = do
+shutdown :: MonadIO m => GLFW.Window -> m ()
+shutdown win = liftIO $ do 
   GLFW.destroyWindow win
   GLFW.terminate
   exitSuccess

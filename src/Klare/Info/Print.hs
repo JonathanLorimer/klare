@@ -4,10 +4,10 @@ import qualified Graphics.UI.GLFW as GLFW
 import Text.PrettyPrint
 import Data.List (intercalate)
 import Data.Maybe (catMaybes)
+import Control.Monad.IO.Class 
 
-printEvent :: String -> [String] -> IO ()
-printEvent cbname fields =
-  putStrLn $ cbname ++ ": " ++ unwords fields
+printEvent :: MonadIO m => String -> [String] -> m ()
+printEvent cbname fields = liftIO $ putStrLn $ cbname ++ ": " ++ unwords fields
 
 showModifierKeys :: GLFW.ModifierKeys -> String
 showModifierKeys mk =
