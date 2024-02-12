@@ -20,3 +20,6 @@ scale (V3 x y z) =
 
 rotate2D :: (Epsilon a, Floating a) => a -> M33 a
 rotate2D theta = fromQuaternion $ axisAngle (V3 0 0 1) theta 
+
+toRadian :: Floating a => a -> a
+toRadian deg = deg * (pi / 180)

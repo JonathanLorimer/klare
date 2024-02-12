@@ -131,8 +131,6 @@ main = do
             [ 0, 1, 2
             , 1, 2, 3
             ]
-      liftIO $ print $ length vertices
-      liftIO $ pPrint $ zip [0..] vertices
 
       vboWitness <-
         registerBuffer @VBO
@@ -189,10 +187,10 @@ main = do
       void 
         $ flip runStateT state 
         $ flip runReaderT env 
-        $ renderLoop program
+        $ renderLoop (fromIntegral $ length indices) program
 
-renderLoop :: GL.Program -> KlareM ()
-renderLoop program = do
+renderLoop :: GL.NumArrayIndices -> GL.Program -> KlareM ()
+renderLoop numIndices program = do
   win <- asks window
   eventQueue <- asks events
   time <- liftIO GLFW.getTime
@@ -201,41 +199,47 @@ renderLoop program = do
   when (u_Colour /= GL.UniformLocation (-1)) $
     GL.uniform u_Colour $= (GL.Color4 @GL.GLfloat) 0.3 gv 0.2 0.1
 
-  -- u_MVP <- GL.get $ GL.uniformLocation program "u_MVP"
-  -- when (u_MVP /= GL.UniformLocation (-1)) $ do
-  --   KlareState{..} <- get
-  --   let w = fromIntegral winWidth
-  --       h = fromIntegral winHeight
-  --       (wRatio, hRatio) = if w > h 
-  --                           then (1, h / w)
-  --                           else (w / h, 1)
-  --       proj = (ortho @GL.GLfloat) (negate wRatio) wRatio (negate hRatio) hRatio (-1.0) 1.0
-  --   let rot = rotate2D @GL.GLfloat (maybe 90.0 double2Float time)
-  --       sca = identity
-  --       mat = sca !*! m33_to_m44 rot
-  --   liftIO $ GLUtil.asUniform mat u_MVP 
+  let
+    positions :: [V3 GL.GLfloat] = 
+      [ V3   0.0    0.0    0.0
+      , V3   2.0    5.0  (-15.0)
+      , V3 (-1.5) (-2.2) (-2.5)
+      , V3 (-3.8) (-2.0) (-12.3) 
+      , V3   2.4  (-0.4) (-3.5) 
+      , V3 (-1.7)   3.0  (-7.5) 
+      , V3   1.3  (-2.0) (-2.5) 
+      , V3   1.5    2.0  (-2.5)
+      , V3   1.5    0.2  (-1.5)
+      , V3 (-1.3)   1.0  (-1.5)
+      ]
 
-  -- liftIO . print $ (cos $ maybe 90.0 double2Float time)
   KlareState{..} <- get
   u_Model <- GL.get $ GL.uniformLocation program "u_Model"
   u_View <- GL.get $ GL.uniformLocation program "u_View"
   u_Projection <- GL.get $ GL.uniformLocation program "u_Projection"
-  let 
-      toRadian deg = deg * (pi / 180)
+
+  let
       w = fromIntegral winWidth
       h = fromIntegral winHeight
-      model :: M44 GL.GLfloat = m33_to_m44 $ fromQuaternion $ axisAngle (V3 0.5 1.0 0.0) (maybe 1.0 double2Float time * toRadian 50)
-      -- model :: M44 GL.GLfloat = m33_to_m44 $ fromQuaternion $ axisAngle (V3 1.0 0.0 0.0) (toRadian $ -55.0)
       view :: M44 GL.GLfloat = translate $ V3 0.0 0.0 (-3.0)
-      -- view :: M44 GL.GLfloat = identity
       projection :: M44 GL.GLfloat = perspective (toRadian 45.0) (w / h) 0.1 100.0
-      -- model :: M44 GL.GLfloat = identity
       -- view :: M44 GL.GLfloat = identity
       -- projection :: M44 GL.GLfloat = identity
-  liftIO $ GLUtil.asUniform model u_Model 
   liftIO $ GLUtil.asUniform view u_View 
   liftIO $ GLUtil.asUniform projection u_Projection 
-  draw
+
+  GL.clearColor $= GL.Color4 0.2 0.3 0.3 1
+  liftIO $ GL.clear [GL.ColorBuffer, GL.DepthBuffer]
+  forM_ (zip positions [0..]) $ \(pos, idx) -> do
+    let 
+        rot :: M44 GL.GLfloat = m33_to_m44 $ fromQuaternion $ axisAngle (V3 1.0 0.3 0.5) (toRadian (20 * idx) + maybe 1.0 double2Float time)
+        trans = translate pos
+        model = trans !*! rot
+        -- model :: M44 GL.GLfloat = identity
+    liftIO $ GLUtil.asUniform model u_Model 
+    liftIO $ handleGLErrors $ GL.drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr
+
+
   liftIO $ do 
     GLFW.swapBuffers win
     GLFW.pollEvents
@@ -243,13 +247,7 @@ renderLoop program = do
   handleEvents eventQueue handler
 
   q <- liftIO $ GLFW.windowShouldClose win
-  unless q $ renderLoop program
-
-draw :: KlareM ()
-draw = do
-  GL.clearColor $= GL.Color4 0.2 0.3 0.3 1
-  liftIO $ GL.clear [GL.ColorBuffer, GL.DepthBuffer]
-  liftIO $ handleGLErrors $ GL.drawElements GL.Triangles 36 GL.UnsignedInt nullPtr
+  unless q $ renderLoop numIndices program
 
 resizeWindow :: Int -> Int -> KlareM ()
 resizeWindow w h = do
