@@ -57,6 +57,8 @@
               freeglut
               libGLU
               zlib
+              apitrace
+              ffmpeg
             ];
         });
 

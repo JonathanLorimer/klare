@@ -35,15 +35,19 @@ library
   exposed-modules:
     Core
     Klare.Data.Buffer
+    Klare.Data.Coordinates
     Klare.Data.Layout
     Klare.Data.Texture
+    Klare.Data.Uniform
     Klare.Error.GL
     Klare.Events
     Klare.Events.Callbacks
     Klare.Events.Type
+    Klare.Example.Geometry
     Klare.Example.Main
     Klare.Image.Texture
     Klare.Info.Print
+    Klare.Math.Linear
     Shaders.Load
 
   hs-source-dirs:  src
@@ -52,14 +56,16 @@ library
     , GLUtil
     , JuicyPixels
     , JuicyPixels-extra
+    , linear
+    , mtl
     , OpenGL
+    , optics
     , pretty
+    , pretty-simple
     , StateVar
     , stm
     , storable-tuple
-    , linear
     , transformers
-    , mtl
 
 executable klare
   import:         common-opts
