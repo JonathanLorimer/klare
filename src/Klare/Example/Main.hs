@@ -29,9 +29,7 @@ import Klare.Data.Texture (registerTextures)
 import Control.Monad.Reader (ReaderT, asks, runReaderT)
 import Control.Monad.State (StateT, runStateT, put, MonadState (..), modify, gets)
 import Control.Monad.IO.Class (MonadIO(..))
-import Linear (ortho, V3 (..))
 import Data.Ratio
-import Klare.Math.Linear (rotate2D, scale)
 import Linear.Matrix
 import Data.Maybe
 import Linear.Quaternion
@@ -40,11 +38,12 @@ import Linear
 import Klare.Example.Geometry
 import Data.Functor
 import Text.Pretty.Simple (pPrint)
+import Data.Ord
 
 bufferOffset :: (Integral a) => a -> Ptr b
 bufferOffset = plusPtr nullPtr . fromIntegral
 
-data KlareEnv = 
+data KlareEnv =
   KlareEnv
     { events :: !(TQueue Event)
     , window :: !GLFW.Window
@@ -57,6 +56,12 @@ data KlareState =
     , cameraPos :: V3 GL.GLfloat
     , cameraFront :: V3 GL.GLfloat
     , cameraUp :: V3 GL.GLfloat
+    , yaw :: GL.GLfloat
+    , pitch :: GL.GLfloat
+    , lastX :: Maybe Float
+    , lastY :: Maybe Float
+    , cursorInWindow :: Bool
+    , mouseButtonPressed :: Bool
     , deltaTime :: Float
     , lastFrame :: Float
     }
@@ -92,10 +97,10 @@ verticesFromFaces (X x) = do
   pure
     ( toVtx $ vtxCoord <$> Vertices3D{..}
     -- , texCoordsToColor z' y
-    , if x 
+    , if x
         then GL.Color3 1.0 0.0 0.0
         else GL.Color3 1.0 0.5 0.0
-        
+
     , texCoords z' y
     )
 verticesFromFaces (Z z) = do
@@ -105,7 +110,7 @@ verticesFromFaces (Z z) = do
   pure
     ( toVtx $ vtxCoord <$> Vertices3D{..}
     -- , texCoordsToColor x' y
-    , if z 
+    , if z
         then GL.Color3 0.0 1.0 0.0
         else GL.Color3 0.0 1.0 1.0
     , texCoords x' y
@@ -117,7 +122,7 @@ verticesFromFaces (Y y) = do
   pure
     ( toVtx $ vtxCoord <$> Vertices3D{..}
     -- , texCoordsToColor x' z
-    , if y 
+    , if y
         then GL.Color3 0.0 0.0 1.0
         else GL.Color3 0.5 0.0 1.0
     , texCoords x' z
@@ -150,7 +155,7 @@ main = do
           GL.ElementArrayBuffer
           GL.StaticDraw
           indices
-      
+
       GL.blend $= GL.Enabled
       GL.blendFunc $= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
 
@@ -169,7 +174,7 @@ main = do
       textures <- registerTextures [(GL.Texture2D, wall), (GL.Texture2D, smiley)]
 
       GL.currentProgram $= Just program
-      
+
       -- TODO: attach uniforms to the "shader" abstraction
       forM_ textures $ \texUnit@(GL.TextureUnit t) -> do
         print ("texture" <> show t)
@@ -179,25 +184,31 @@ main = do
 
       -- Set wireframe mode
       -- GL.polygonMode $= (GL.Line, GL.Line)
-      
-      let env = KlareEnv 
+
+      let env = KlareEnv
                   { events = eventQueue
                   , window = win
                   }
-          state = KlareState 
+          state = KlareState
                   { winHeight = height
                   , winWidth = width
+                  , cursorInWindow = False
+                  , mouseButtonPressed = False
                   , cameraPos   = V3 0.0 0.0 3.0
                   , cameraFront = V3 0.0 0.0 (-1.0)
                   , cameraUp    = V3 0.0 1.0 0.0
+                  , yaw         = -90.0
+                  , pitch       = 0.0
+                  , lastX       = Nothing
+                  , lastY       = Nothing
                   , deltaTime   = 0.0
                   , lastFrame   = 0.0
                   }
 
       GL.depthFunc $= Just GL.Less
-      void 
-        $ flip runStateT state 
-        $ flip runReaderT env 
+      void
+        $ flip runStateT state
+        $ flip runReaderT env
         $ renderLoop (fromIntegral $ length indices) program
 
 renderLoop :: GL.NumArrayIndices -> GL.Program -> KlareM ()
@@ -212,31 +223,31 @@ renderLoop numIndices program = do
   eventQueue <- asks events
 
   let
-    positions :: [V3 GL.GLfloat] = 
+    positions :: [V3 GL.GLfloat] =
       [ V3   0.0    0.0    0.0
       , V3   2.0    5.0  (-15.0)
       , V3 (-1.5) (-2.2) (-2.5)
-      , V3 (-3.8) (-2.0) (-12.3) 
-      , V3   2.4  (-0.4) (-3.5) 
-      , V3 (-1.7)   3.0  (-7.5) 
-      , V3   1.3  (-2.0) (-2.5) 
+      , V3 (-3.8) (-2.0) (-12.3)
+      , V3   2.4  (-0.4) (-3.5)
+      , V3 (-1.7)   3.0  (-7.5)
+      , V3   1.3  (-2.0) (-2.5)
       , V3   1.5    2.0  (-2.5)
       , V3   1.5    0.2  (-1.5)
       , V3 (-1.3)   1.0  (-1.5)
       ]
-  
+
   KlareState{..} <- get
   u_Model <- GL.get $ GL.uniformLocation program "u_Model"
   u_View <- GL.get $ GL.uniformLocation program "u_View"
   u_Projection <- GL.get $ GL.uniformLocation program "u_Projection"
 
-  let
+  let 
       w = fromIntegral winWidth
       h = fromIntegral winHeight
       radius = 15.0
       camX = sin time * radius
       camZ = cos time * radius
-      view :: M44 GL.GLfloat = 
+      view :: M44 GL.GLfloat =
         lookAt
           cameraPos -- Eye position
           (cameraPos + cameraFront) -- Scene origin
@@ -244,25 +255,25 @@ renderLoop numIndices program = do
       projection :: M44 GL.GLfloat = perspective (toRadian 45.0) (w / h) 0.1 100.0
       -- view :: M44 GL.GLfloat = identity
       -- projection :: M44 GL.GLfloat = identity
-  liftIO $ GLUtil.asUniform view u_View 
-  liftIO $ GLUtil.asUniform projection u_Projection 
+  liftIO $ GLUtil.asUniform view u_View
+  liftIO $ GLUtil.asUniform projection u_Projection
 
   GL.clearColor $= GL.Color4 0.2 0.3 0.3 1
   liftIO $ GL.clear [GL.ColorBuffer, GL.DepthBuffer]
   forM_ (zip positions [0..]) $ \(pos, idx) -> do
-    let 
+    let
         rot :: M44 GL.GLfloat = m33_to_m44 $ fromQuaternion $ axisAngle (V3 1.0 0.3 0.5) (toRadian (20 * idx) + time)
         trans = translate pos
         model = trans !*! rot
         -- model :: M44 GL.GLfloat = identity
-    liftIO $ GLUtil.asUniform model u_Model 
+    liftIO $ GLUtil.asUniform model u_Model
     liftIO $ handleGLErrors $ GL.drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr
 
 
-  liftIO $ do 
+  liftIO $ do
     GLFW.swapBuffers win
     GLFW.pollEvents
-    
+
   handleEvents eventQueue handler
 
   q <- liftIO $ GLFW.windowShouldClose win
@@ -270,7 +281,7 @@ renderLoop numIndices program = do
 
 resizeWindow :: Int -> Int -> KlareM ()
 resizeWindow w h = do
-  modify $ \s -> s { winHeight = h, winWidth = w } 
+  modify $ \s -> s { winHeight = h, winWidth = w }
   liftIO $ do
     GL.viewport $= (GL.Position 0 0, GL.Size (fromIntegral w) (fromIntegral h))
     GL.matrixMode $= GL.Projection
@@ -297,12 +308,60 @@ handler = \case
     printEvent "window iconify" [show is]
   (EventFramebufferSize _ width height) ->
     printEvent "framebuffer size" [show width, show height]
-  (EventMouseButton _ mb mbs mk) ->
+  (EventMouseButton _ mb mbs mk) -> do
     printEvent "mouse button" [show mb, show mbs, showModifierKeys mk]
-  (EventCursorPos _ x y) ->
-    printEvent "cursor pos" [show x, show y]
-  (EventCursorEnter _ cs) ->
+    modify $ \s -> 
+      s { mouseButtonPressed = case mbs of
+                                GLFW.MouseButtonState'Pressed -> True
+                                GLFW.MouseButtonState'Released -> False
+        }
+  (EventCursorPos _ x' y') -> do
+    printEvent "cursor pos" [show x', show y']
+    let x = double2Float x'
+        y = double2Float y'
+    modify $ \s -> 
+      case (lastX s, lastY s, cursorInWindow s, mouseButtonPressed s) of
+        (Just lx, Just ly, True, True) ->
+          let
+              xOffset = x - lx
+              yOffset = y - ly
+              sensitivity = 0.3
+              dirX yaw pitch = cos (toRadian yaw) * cos (toRadian pitch)
+              dirZ yaw pitch = sin (toRadian yaw) * cos (toRadian pitch)
+              dirY pitch = sin . toRadian $ pitch
+              newYaw = yaw s - (xOffset * sensitivity)
+              newPitch = clamp (-89.0, 89.1) $ pitch s + (yOffset * sensitivity)
+          in s 
+              { lastX = Just x
+              , lastY = Just y 
+              , yaw = newYaw
+              , pitch = newPitch
+              , cameraFront = normalize $ V3 (dirX newYaw newPitch) (dirY newPitch) (dirZ newYaw newPitch)
+              }
+        (Nothing, Nothing, True, _) -> 
+          s 
+            { lastX = Just x
+            , lastY = Just y
+            }
+        (Just lx, Just ly, True, False) ->
+          s 
+            { lastX = Just x
+            , lastY = Just y
+            }
+        (Just lx, Just ly, False, _) ->
+          s 
+            { lastX = Nothing
+            , lastY = Nothing
+            }
+        (Nothing, Nothing, False, _) -> s
+  (EventCursorEnter _ cs) -> do
     printEvent "cursor enter" [show cs]
+    modify $ \s -> 
+      s 
+        { cursorInWindow = case cs of
+                            GLFW.CursorState'InWindow -> True
+                            GLFW.CursorState'NotInWindow -> False
+        }
   (EventScroll _ x y) ->
     printEvent "scroll" [show x, show y]
   (EventKey win k scancode ks mk) -> do
@@ -310,34 +369,34 @@ handler = \case
     dTime <- gets deltaTime
     let cameraSpeed = pure $ 3.5 * dTime
     case (ks, k) of
-      (GLFW.KeyState'Pressed, GLFW.Key'Q) -> 
+      (GLFW.KeyState'Pressed, GLFW.Key'Q) ->
         liftIO $ GLFW.setWindowShouldClose win True
-      (GLFW.KeyState'Pressed, GLFW.Key'Escape) -> 
+      (GLFW.KeyState'Pressed, GLFW.Key'Escape) ->
         liftIO $ GLFW.setWindowShouldClose win True
-      (GLFW.KeyState'Pressed, GLFW.Key'I) -> 
+      (GLFW.KeyState'Pressed, GLFW.Key'I) ->
         liftIO $ printInformation win
-      (GLFW.KeyState'Pressed, GLFW.Key'W) -> 
+      (GLFW.KeyState'Pressed, GLFW.Key'W) ->
         modify (\s -> s { cameraPos = cameraPos s + cameraFront s * cameraSpeed })
-      (GLFW.KeyState'Repeating, GLFW.Key'W) -> 
+      (GLFW.KeyState'Repeating, GLFW.Key'W) ->
         modify (\s -> s { cameraPos = cameraPos s + cameraFront s * cameraSpeed })
-      (GLFW.KeyState'Pressed, GLFW.Key'S) -> 
+      (GLFW.KeyState'Pressed, GLFW.Key'S) ->
         modify (\s -> s { cameraPos = cameraPos s - cameraFront s * cameraSpeed })
-      (GLFW.KeyState'Repeating, GLFW.Key'S) -> 
+      (GLFW.KeyState'Repeating, GLFW.Key'S) ->
         modify (\s -> s { cameraPos = cameraPos s - cameraFront s * cameraSpeed })
-      (GLFW.KeyState'Pressed, GLFW.Key'A) -> 
+      (GLFW.KeyState'Pressed, GLFW.Key'A) ->
         modify (\s -> s { cameraPos = cameraPos s - normalize (cross (cameraFront s) (cameraUp s)) * cameraSpeed })
-      (GLFW.KeyState'Repeating, GLFW.Key'A) -> 
+      (GLFW.KeyState'Repeating, GLFW.Key'A) ->
         modify (\s -> s { cameraPos = cameraPos s - normalize (cross (cameraFront s) (cameraUp s)) * cameraSpeed })
-      (GLFW.KeyState'Pressed, GLFW.Key'D) -> 
+      (GLFW.KeyState'Pressed, GLFW.Key'D) ->
         modify (\s -> s { cameraPos = cameraPos s + normalize (cross (cameraFront s) (cameraUp s)) * cameraSpeed })
-      (GLFW.KeyState'Repeating, GLFW.Key'D) -> 
+      (GLFW.KeyState'Repeating, GLFW.Key'D) ->
         modify (\s -> s { cameraPos = cameraPos s + normalize (cross (cameraFront s) (cameraUp s)) * cameraSpeed })
       _ -> pure ()
   (EventChar _ c) ->
     printEvent "char" [show c]
 
 shutdown :: MonadIO m => GLFW.Window -> m ()
-shutdown win = liftIO $ do 
+shutdown win = liftIO $ do
   GLFW.destroyWindow win
   GLFW.terminate
   exitSuccess
