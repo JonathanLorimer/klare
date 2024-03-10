@@ -39,6 +39,11 @@ import Klare.Example.Geometry
 import Data.Functor
 import Text.Pretty.Simple (pPrint)
 import Data.Ord
+import FreeType
+import Klare.Font
+import Data.Map (Map)
+import Data.Map qualified as M
+import Data.Foldable
 
 bufferOffset :: (Integral a) => a -> Ptr b
 bufferOffset = plusPtr nullPtr . fromIntegral
@@ -60,10 +65,12 @@ data KlareState =
     , pitch :: GL.GLfloat
     , lastX :: Maybe Float
     , lastY :: Maybe Float
+    , fieldOfView :: GL.GLfloat
     , cursorInWindow :: Bool
     , mouseButtonPressed :: Bool
     , deltaTime :: Float
     , lastFrame :: Float
+    , glyphs :: Map Char CharGlyph
     }
 
 type KlareM a = ReaderT KlareEnv (StateT KlareState IO) a
@@ -96,7 +103,6 @@ verticesFromFaces (X x) = do
   let z' = if x then not z else z
   pure
     ( toVtx $ vtxCoord <$> Vertices3D{..}
-    -- , texCoordsToColor z' y
     , if x
         then GL.Color3 1.0 0.0 0.0
         else GL.Color3 1.0 0.5 0.0
@@ -109,7 +115,6 @@ verticesFromFaces (Z z) = do
   let x' = if z then x else not x
   pure
     ( toVtx $ vtxCoord <$> Vertices3D{..}
-    -- , texCoordsToColor x' y
     , if z
         then GL.Color3 0.0 1.0 0.0
         else GL.Color3 0.0 1.0 1.0
@@ -121,7 +126,6 @@ verticesFromFaces (Y y) = do
   let x' = if y then x else not x
   pure
     ( toVtx $ vtxCoord <$> Vertices3D{..}
-    -- , texCoordsToColor x' z
     , if y
         then GL.Color3 0.0 0.0 1.0
         else GL.Color3 0.5 0.0 1.0
@@ -184,6 +188,15 @@ main = do
 
       -- Set wireframe mode
       -- GL.polygonMode $= (GL.Line, GL.Line)
+      
+      glyphMap <- ft_With_FreeType $ \ft -> 
+        ft_With_Face ft "assets/Montserrat-Regular.ttf" 0 $ \face -> do
+          ft_Set_Pixel_Sizes face 0 48
+          let chars :: [Char] = [toEnum 0 ..]
+          GL.rowAlignment GL.Unpack $= 1
+          foldrM (\c m -> M.insert c <$> registerGlyph face c <*> pure m) 
+            M.empty 
+            chars
 
       let env = KlareEnv
                   { events = eventQueue
@@ -201,8 +214,10 @@ main = do
                   , pitch       = 0.0
                   , lastX       = Nothing
                   , lastY       = Nothing
+                  , fieldOfView = 45.0
                   , deltaTime   = 0.0
                   , lastFrame   = 0.0
+                  , glyphs      = glyphMap
                   }
 
       GL.depthFunc $= Just GL.Less
@@ -252,7 +267,7 @@ renderLoop numIndices program = do
           cameraPos -- Eye position
           (cameraPos + cameraFront) -- Scene origin
           cameraUp -- Up orientation (i.e. positive y axis)
-      projection :: M44 GL.GLfloat = perspective (toRadian 45.0) (w / h) 0.1 100.0
+      projection :: M44 GL.GLfloat = perspective (toRadian fieldOfView) (w / h) 0.1 100.0
       -- view :: M44 GL.GLfloat = identity
       -- projection :: M44 GL.GLfloat = identity
   liftIO $ GLUtil.asUniform view u_View
@@ -268,7 +283,6 @@ renderLoop numIndices program = do
         -- model :: M44 GL.GLfloat = identity
     liftIO $ GLUtil.asUniform model u_Model
     liftIO $ handleGLErrors $ GL.drawElements GL.Triangles numIndices GL.UnsignedInt nullPtr
-
 
   liftIO $ do
     GLFW.swapBuffers win
@@ -362,8 +376,10 @@ handler = \case
                             GLFW.CursorState'InWindow -> True
                             GLFW.CursorState'NotInWindow -> False
         }
-  (EventScroll _ x y) ->
+  (EventScroll _ x y) -> do
     printEvent "scroll" [show x, show y]
+    modify $ \s ->
+      s { fieldOfView = clamp (1.0, 90.0) $ fieldOfView s - double2Float y }
   (EventKey win k scancode ks mk) -> do
     printEvent "key" [show k, show scancode, show ks, showModifierKeys mk]
     dTime <- gets deltaTime
